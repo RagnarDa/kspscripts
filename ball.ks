@@ -200,14 +200,15 @@ function GETGATALT {
 	return body:mu / (ALTITUDETOCHECK + body:radius)^2.
 }.
 
+// Simple back-of-the envelope calculation from NASAs webpage.
 function GETBALLISTICX {
 	parameter STARTINGALT.
 	parameter Uo.
 	parameter Vo.
 	parameter Cd.
-	RETURN 1.
+	
 	SET g to GETGATALT(STARTINGALT).
-	SET Vt TO SQRT((2*SHIP:MASS*g)/(Cd*Density)).
+	SET Vt TO SQRT((2*SHIP:MASS*g)/((Cd*GETDENSITY(STARTINGALT))+0.000001)).
 	SET ESTFALLTIME TO (Vo/g)*2.
 	SET ymax TO (Vt^2 / (2 * g)) * ln ((Vo^2 + Vt^2)/Vt^2).
 	SET ITERATIONS TO 5.
@@ -215,12 +216,12 @@ function GETBALLISTICX {
 	{
 
 		SET NEWG TO GETGATALT(STARTINGALT+ymax).
-		SET Vt TO SQRT((2*SHIP:MASS*NEWG)/(Cd*GETDENSITY((STARTINGALT+ymax)/2))).
+		SET Vt TO SQRT((2*SHIP:MASS*NEWG)/((Cd*GETDENSITY((STARTINGALT+ymax)/2)))+0.000001).
 		SET ymax TO (Vt^2 / (2 * NEWG)) * ln ((Vo^2 + Vt^2)/Vt^2).
 		SET AVGG TO (g+NEWG)/2.
 		SET FALLTIMENEW TO (Vo/AVGG)*2.
 		
-		SET X TO ((Vt*Vt)/AVGG)*(LN(((Vt*Vt)+AVGG*UoHMS*FALLTIMENEW)/(Vt*Vt))).
+		SET X TO ((Vt*Vt)/AVGG)*(LN(((Vt*Vt)+AVGG*Uo*FALLTIMENEW)/(Vt*Vt))).
 		
 		SET ITERATIONS TO ITERATIONS - 1.
 	}.
@@ -292,32 +293,34 @@ function RK4Step {
 	SET f0 TO TRAJECTORYSTEP( CURRENTALT, CURRENTHORV, CURRENTVERV, DT).//t0, u0 );
 
   	SET t1 TO DT/2.0.//t1 = t0 + dt / 2.0;
-	SET a1 TO CURRENTALT + (DT * f0[0]/2.0).
-	SET u1 TO CURRENTVERV + (DT * f0[3] / 2.0). //u1 = u0 + dt * f0 / 2.0;
-	SET v1 TO CURRENTHORV + (DT * f0[2] / 2.0). 
+	SET a1 TO CURRENTALT + (DT * (f0[0]-CURRENTALT)/2.0).
+	SET u1 TO CURRENTVERV + (DT * (f0[3]-CURRENTVERV) / 2.0). //u1 = u0 + dt * f0 / 2.0;
+	SET v1 TO CURRENTHORV + (DT * (f0[2]-CURRENTHORV) / 2.0). 
 	SET x1 TO 0 + (DT * f0[1] / 2.0). 
   	SET f1 TO TRAJECTORYSTEP(a1, v1, u1, DT/2).//f1 = f ( t1, u1 );
 
 	SET t2 TO DT/2.0.//t2 = t0 + dt / 2.0;
-	SET a2 TO CURRENTALT + (DT * f1[0]/2.0).
-	SET u2 TO CURRENTVERV + (DT * f1[3] / 2.0). //u2 = u0 + dt * f1 / 2.0;
-	SET v2 TO CURRENTHORV + (DT * f1[2] / 2.0).
+	SET a2 TO CURRENTALT + (DT * (f1[0]-CURRENTALT)/2.0).
+	SET u2 TO CURRENTVERV + (DT * (f1[3]-CURRENTVERV) / 2.0). //u2 = u0 + dt * f1 / 2.0;
+	SET v2 TO CURRENTHORV + (DT * (f1[2]-CURRENTHORV) / 2.0).
 	SET x2 TO 0 + (DT * f1[1] / 2.0).
   	SET f2 TO TRAJECTORYSTEP(a2, v2, u2, DT/2).//f2 = f ( t2, u2 );
 
   	SET t3 TO DT.//t3 = t0 + dt;
-	SET a3 TO CURRENTALT + (DT * f2[0]).
-	SET u3 TO CURRENTVERV + (DT * f2[3]). //u3 = u0 + dt * f2;
-	SET v3 TO CURRENTHORV + (DT * f2[2]). 
+	SET a3 TO CURRENTALT + (DT * (f2[0]-CURRENTALT)).
+	SET u3 TO CURRENTVERV + (DT * (f2[3]-CURRENTVERV)). //u3 = u0 + dt * f2;
+	SET v3 TO CURRENTHORV + (DT * (f2[2]-CURRENTHORV)). 
 	SET x3 TO 0 + (DT * f2[1]).
   	SET f3 TO TRAJECTORYSTEP(a3, v3, u3, DT).//f3 = f ( t3, u3 );
 
+
+	//PRINT "a0 " + CURRENTALT + " a1 " + a1 + " a2 " + a2 + " a3 " + a3.
 	//
 	//  Combine to estimate the solution at time T0 + DT.
 	//
-	SET a TO CURRENTALT + DT * (f0[0] + 2.0 * f1[0] + 2.0 * f2[0] + f3[0]) / 6.0. //u = u0 + dt * ( f0 + 2.0 * f1 + 2.0 * f2 + f3 ) / 6.0;
-  	SET u TO CURRENTVERV + DT * (f0[3] + 2.0 * f1[3] + 2.0 * f2[3] + f3[3]) / 6.0. //u = u0 + dt * ( f0 + 2.0 * f1 + 2.0 * f2 + f3 ) / 6.0;
-	SET v TO CURRENTHORV + DT * (f0[2] + 2.0 * f1[2] + 2.0 * f2[2] + f3[2]) / 6.0. //u = u0 + dt * ( f0 + 2.0 * f1 + 2.0 * f2 + f3 ) / 6.0;
+	SET a TO (f0[0] + 2.0 * f1[0] + 2.0 * f2[0] + f3[0]) / 6.0. //u = u0 + dt * ( f0 + 2.0 * f1 + 2.0 * f2 + f3 ) / 6.0;
+  	SET u TO (f0[3] + 2.0 * f1[3] + 2.0 * f2[3] + f3[3]) / 6.0. //u = u0 + dt * ( f0 + 2.0 * f1 + 2.0 * f2 + f3 ) / 6.0;
+	SET v TO (f0[2] + 2.0 * f1[2] + 2.0 * f2[2] + f3[2]) / 6.0. //u = u0 + dt * ( f0 + 2.0 * f1 + 2.0 * f2 + f3 ) / 6.0;
 	SET x TO 0 + DT * (f0[1] + 2.0 * f1[1] + 2.0 * f2[1] + f3[1]) / 6.0. //u = u0 + dt * ( f0 + 2.0 * f1 + 2.0 * f2 + f3 ) / 6.0;
 
 	RETURN LIST(a, x, v, u).
@@ -345,46 +348,13 @@ function GETEULERBALLX {
 	//PRINt "SHIP MASS: " + SMASS.
 	UNTIL (ITERATIONS = 0)
 	{
-		SET AERODYNAMICFORCEHOR TO GETAEROFORCE(CURRENTALT, CURRENTHORV, Cd).
-		SET AERODYNAMICFORCEVER TO GETAEROFORCE(CURRENTALT, CURRENTVERV, Cd).
-		//PRINT "AEROHOR: " + AERODYNAMICFORCEHOR.
-		//PRINT "AEROVER: " + AERODYNAMICFORCEVER.
-		// TODO: Do RK4 integration instead.
-		SET NEWHORV TO CURRENTHORV - (AERODYNAMICFORCEHOR / SMASS).
-		SET NEWVERV TO 0.
-		IF (CURRENTVERV > 0)
-		{
-			SET NEWVERV TO CURRENTVERV - (AERODYNAMICFORCEVER / SMASS).
-		} ELSE {
-			// I guess if falling the vertical drag is applied upwards.
-			SET NEWVERV TO CURRENTVERV + (AERODYNAMICFORCEVER / SMASS).
-		}
-		// Apply G.
-		SET NEWVERV TO NEWVERV - GETGATALT(CURRENTALT).
-
-		// Add the horv that is added as vertical V because we are
-		// "missing" the body (ie orbit)
-		SET RADIALDIST TO CURRENTALT + Kerbin:RADIUS.
-		SET NEWVERV TO NEWVERV + (SQRT((NEWHORV*NEWHORV)+(RADIALDIST*RADIALDIST))-RADIALDIST).
-
 		SET ESTIMATE TO TRAJECTORYSTEP(CURRENTALT, CURRENTHORV, CURRENTVERV, 1.0).
 
-		// Assert test
-		PRINT "CURRHORV ERR " + (ESTIMATE[2] - NEWHORV).
-		PRINT "CURRVERV ERR " + (ESTIMATE[3] - NEWVERV).
-		PRINT "ALT ERR " + (ESTIMATE[0] - (CURRENTALT + NEWVERV)).
-		PRINT "DISTX ERR " + (ESTIMATE[1] - GETCURVEDDIST(NEWHORV, (CURRENTALT + NEWVERV))).
-		PRINT "ESTIMATE " + ESTIMATE[0] + " " + ESTIMATE[1] + " " + ESTIMATE[2] + " " + ESTIMATE[3].
-
-		WAIT 1.
-
 		// Prepare for next iteration.
-		SET CURRENTHORV TO NEWHORV.
-		SET CURRENTVERV TO NEWVERV.
-		SET CURRENTALT TO CURRENTALT + CURRENTVERV.
-		SET DISTANCEX TO DISTANCEX + GETCURVEDDIST(CURRENTHORV, CURRENTALT).
-
-		
+		SET CURRENTHORV TO ESTIMATE[2].
+		SET CURRENTVERV TO ESTIMATE[3].
+		SET CURRENTALT TO ESTIMATE[0].
+		SET DISTANCEX TO DISTANCEX + ESTIMATE[1].
 		
 		//PRINT "CURRENTALT: " + CURRENTALT.
 		//PRINT "CURRENTHORV: " + CURRENTHORV.
@@ -527,6 +497,7 @@ function DEORBIT {
 	}
 }
 SET Cd TO 0.7/1000.
+
 //PRINT GETEULERBALLX(90000, 0, 4400,0, Cd).
 SET TRAJTEST TO TRAJECTORYSTEP(1000,340,0,1).
 PRINT "TRAJ STEP: ALT " + TRAJTEST[0] + " X " + TRAJTEST[1] + " H " + TRAJTEST[2] + " V " + TRAJTEST[3].
@@ -534,12 +505,16 @@ SET TRAJ4TEST TO RK4STEP(1000,340,0,1).
 PRINT "TRAJ4 STEP: ALT " + TRAJ4TEST[0] + " X " + TRAJ4TEST[1] + " H " + TRAJ4TEST[2] + " V " + TRAJ4TEST[3].
 PRINT "EULER: " + GETEULERBALLX(1000, 0, 340,0, Cd).
 PRINT "RK4: " + GETRK4BALLX(1000, 0, 340,0, Cd).
+PRINT "NASA: " + GETBALLISTICX(1000, 340, 0, Cd).
+PRINT "EULER: " + GETEULERBALLX(100000, 0, 2500,0, Cd).
+PRINT "RK4: " + GETRK4BALLX(100000, 0, 2500,0, Cd).
+PRINT "NASA: " + GETBALLISTICX(100000, 2500, 0, Cd).
 //PRINT GETEULERBALLX(500,0,1100,0,Cd).
 //PRINT GETEULERBALLX(90000, 0, 1100,0, Cd).
-WAIT 10.
+//WAIT 10.
 //DEORBIT().
-ASCEONDTOORBIT().
-DEORBIT().
+//ASCEONDTOORBIT().
+//DEORBIT().
 
 //CIRCULARIZE().
 
