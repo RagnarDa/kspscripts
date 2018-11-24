@@ -536,7 +536,7 @@ function DEORBIT {
 	}.
 	LOG "DEORBITED AT ALT "+ altitude + " DIST " + GETGROUNDDIST(KSC) + " WITH IMPACTX " + IMPACTDIST TO "mylog".
 	LOCK THROTTLE TO 0.
-	UNTIL (ALTITUDE < 40000) // Still outside atmosphere...
+	UNTIL (ALTITUDE < 50000) // Still outside atmosphere...
 	{
 		
 		// Do a recursive burn at 0.9 alt
@@ -563,20 +563,55 @@ function DEORBIT {
 	
 	LOCK STEERING TO PROGRADE.
 }
+function TransferFor {
+	SET sourceParts to SHIP:PARTSDUBBED("AFTTANK").
+	SET destinationParts to SHIP:PARTSDUBBED("FORTANK").
+	SET foo TO TRANSFERALL("liquidfuel", sourceParts, destinationParts).
+	SET foo:ACTIVE to TRUE.
+	SET sourceParts to SHIP:PARTSDUBBED("AFTTANK").
+	SET destinationParts to SHIP:PARTSDUBBED("FORTANK").
+	SET foo TO TRANSFERALL("oxidizer", sourceParts, destinationParts).
+	SET foo:ACTIVE to TRUE.
+	PRINT "TRANSFER COMPLETE".
+}.
+
+function TransferAft {
+	SET sourceParts to SHIP:PARTSDUBBED("FORTANK").
+	SET destinationParts to SHIP:PARTSDUBBED("AFTTANK").
+	SET foo TO TRANSFERALL("liquidfuel", sourceParts, destinationParts).
+	SET foo:ACTIVE to TRUE.
+	SET sourceParts to SHIP:PARTSDUBBED("FORTANK").
+	SET destinationParts to SHIP:PARTSDUBBED("AFTTANK").
+	SET foo TO TRANSFERALL("oxidizer", sourceParts, destinationParts).
+	SET foo:ACTIVE to TRUE.
+	PRINT "TRANSFER COMPLETE".
+}.
+
+
+// Remember ALPHA is _positive_ when going down.
+function GETALPHADEG {
+	parameter HORV.
+	parameter VERV.
+	parameter PITCH.
+	LOCAL VELVEC TO ARCTAN(VERV/HORV).
+	RETURN PITCH-VELVEC.
+}
 
 function GLIDE {
 	PRINT "GLIDING...".
+	TransferFor().
 	UNTIL (ALTITUDE < 2000)
 	{
-		// SIMPLE GLIDE ALGO, JUST AIM AT KSC.
+		// SIMPLE GLIDE ALGO, JUST AIM AT TARGET.
 		// Surprisingly effective.
 		SET TARGETDIST TO KSC:DISTANCE.
 		SET HEIGHTDIFF TO ALTITUDE-TARGETDIST.
 		SET GLIDEPATH TO ARCSIN((ALTITUDE-500)/TARGETDIST). // HACK: Aim 500m above.
 		SET NORTHERROR TO (KSC:LAT-SHIP:GEOPOSITION:LAT).
-		LOCK STEERING TO HEADING(90+(NORTHERROR*2),-GLIDEPATH).
+		LOCK STEERING TO HEADING(90-(NORTHERROR*2),(-GLIDEPATH)+GETALPHADEG(CALCHORV,SHIP:VERTICALSPEED,SHIP:FACING:PITCH)).
 		WAIT 0.5.
 	}
+	TransferAft().
 	UNTIL (ALTITUDE < 5000)
 	{
 		// More complicated glide...
@@ -616,22 +651,85 @@ function GLIDE {
 	LOG "CRASHING AT " + GETGROUNDDIST(KSC) TO "mylog".
 }
 
+// Assumes same ISP! HACK
+function GETTWR {
+	parameter ALTITUDETOCHECK.
+	LOCAL GRAVITYPULL TO ((SHIP:MASS*1000)*GETGATALT(ALTITUDETOCHECK)).
+	RETURN ((SHIP:MAXTHRUST*1000)/GRAVITYPULL).
+}
+
+// Returns the throttle position to keep same altitude
+// with current pitch (ie more throttle when at an angle)
+// Pitch is relative to horizon, so use ABS(FACING:PITCH)+90.
+function GETHOVERTHROTTLE {
+	parameter thrusttoweightratio.
+	parameter pitchtocheck.
+	LOCAL LEANOPP TO SIN(ABS(pitchtocheck-90))*(1/thrusttoweightratio).
+	RETURN SQRT((LEANOPP*LEANOPP)+((1/thrusttoweightratio)*(1/thrusttoweightratio))).
+}
+
+// Calculate time for 180 rotation at power (non-atmo)
+function GETPOWEREDROTATION {
+	parameter SHIPLENGTH.
+	parameter SHIPWEIGHT.
+	parameter SHIPTHRUST.
+	parameter 
+}
+
 function LAND {
+	LOCK STEERING TO RETROGRADE.
 	UNTIL (FALSE)
 	{
-		PRINTDATA().
-		IF (SHIP:VERTICALSPEED < -1.0)
+		//PRINTDATA().
+		
+		LOCAL shiptwr TO GETTWR(ALTITUDE).
+		LOCAL P TO ABS(FACING:PITCH)+90.
+		LOCAL throttlesetting TO GETHOVERTHROTTLE(shiptwr, P).
+		LOCK THROTTLE TO throttlesetting.// - (SHIP:VERTICALSPEED+(ALT:RADAR/10)).
+	
+		IF (SHIP:GROUNDSPEED < 0.5)
 		{
-			LOCK STEERING TO RETROGRADE.
-			LOCK TWR TO ((SHIP:MAXTHRUST*1000)/((SHIP:MASS*1000)*g)).
-			LOCK THROTTLE TO (1.0/TWR) - (SHIP:VERTICALSPEED+(ALT:RADAR/10)).
-		}
-		IF (SHIP:GROUNDSPEED < 5.0)
-		{
-			LOCK STEERING TO HEADING(90,90).
+			LOCK STEERING TO UP.
 		}
 	}
 }.
+
+
+function Assert{
+	parameter condition.
+	parameter name.
+	IF (condition = false)
+	{
+		PRINT "Assertion: " + name + " failed.".
+		WAIT 60.
+	}
+}
+
+// Assert
+Assert((GETALPHADEG(10,10,10) <> 0), "Alpha computation 1").
+Assert((GETALPHADEG(1,10,10) < -70), "Alpha computation 2").
+Assert((GETALPHADEG(1,-10,10) > 85), "Alpha computation 3").
+Assert((GETGATALT(0) < 9.9) AND GETGATALT(0) > 9.8, "S/L gravity").
+Assert((GETGATALT(10000) < 9.86), "1 km gravity").
+stage.
+Assert((GETTWR(0) > 1 AND GETTWR(0) < 2), "TWR too low/high?").
+Assert((GETHOVERTHROTTLE(2,90) = 0.5), "Hover throttle at up facing.").
+Assert((GETHOVERTHROTTLE(2,45) > 0.5) AND (GETHOVERTHROTTLE(2,45) < (0.5*1.5)), "Hover throttle at angle.").
+Assert((GETHOVERTHROTTLE(1,90) = 1.0), "Hover throttle at up facing.").
+
+SET DV TO (260*GETGATALT(0))*LN(SHIP:MASS/SHIP:DRYMASS).
+PRINT "DV0 : " + DV AT (0,30).
+LOG "DV0 " + DV TO "mylog".
+LOCK STEERING TO HEADING(0,89).
+LOCK THROTTLE TO 1.
+WAIT 40.
+LOCK THROTTLE TO 0.
+UNTIL (SHIP:VERTICALSPEED < -1.0)
+{
+	LOCK STEERING TO UP.
+	WAIT 1.
+}.
+LAND().
 
 CLEARSCREEN.
 SET Cd TO 0.7/1000.
@@ -645,9 +743,7 @@ PRINT "BURNTIME " + BURNTIME.
 PRINT "G's " + ((SHIP:MAXTHRUST*1000)/(SHIP:MASS*1000))/GETGATALT(0).
 LOG "START G " + ((SHIP:MAXTHRUST*1000)/(SHIP:MASS*1000))/GETGATALT(0) TO "mylog".
 
-SET DV TO (260*GETGATALT(0))*LN(SHIP:MASS/SHIP:DRYMASS).
-PRINT "DV0 : " + DV AT (0,34).
-LOG "DV0 " + DV TO "mylog".
+
 
 WAIT 4.
 PRINT CURV.
@@ -671,7 +767,7 @@ SET TARGETALT TO 80000.
 STAGE.
 ASCEONDTOORBIT().
 SET DV TO (260*GETGATALT(0))*LN(SHIP:MASS/SHIP:DRYMASS).
-PRINT "DVo : " + DV AT (0,36).
+PRINT "DVo : " + DV AT (0,34).
 LOG "DVo " + DV TO "mylog".
 
 WAIT 4.
