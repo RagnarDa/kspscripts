@@ -668,12 +668,48 @@ function GETHOVERTHROTTLE {
 	RETURN SQRT((LEANOPP*LEANOPP)+((1/thrusttoweightratio)*(1/thrusttoweightratio))).
 }
 
-// Calculate time for 180 rotation at power (non-atmo)
-function GETPOWEREDROTATION {
+// For rod
+function CALCULATEMOI {
+	parameter m.
+	parameter L.
+	return (1/12)*m*L*L.
+}
+
+function CALCULATETORQUE {
+	parameter L.
+	parameter F.
+	parameter angle.
+	return (L/2)*F*sin(angle).
+}
+
+// Calculate approximate rotation degree/second^2 at power 
+// (no aerodynamic forces considered)
+function GETPOWEREDROTATIONACC {
 	parameter SHIPLENGTH.
 	parameter SHIPWEIGHT.
 	parameter SHIPTHRUST.
-	parameter 
+	parameter ENGINEGIMBAL.
+	RETURN CALCULATETORQUE(SHIPLENGTH, SHIPTHRUST, ENGINEGIMBAL)/CALCULATEMOI(SHIPWEIGHT, SHIPLENGTH).
+}
+
+// Calculates the distance traveled at constant
+// acceleration and speed
+function GETDISPLACEMENT {
+	parameter initialvel.
+	parameter t.
+	parameter a.
+	return (initialvel*t)+(0.5*a*t*t).
+}
+
+// Calculates the time it takes to turn the
+// ship around completely at power setting
+// using thrust alone. Aerodynamics not considered.
+function GETPOWEREDONEEIGHTYTURNTIME {
+	parameter SHIPLENGTH.
+	parameter SHIPWEIGHT.
+	parameter SHIPTHRUST.
+	parameter ENGINEGIMBAL.
+	RETURN SQRT(CONSTANT:PI*2/GETPOWEREDROTATIONACC(SHIPLENGTH,SHIPWEIGHT,SHIPTHRUST,ENGINEGIMBAL)).
 }
 
 function LAND {
@@ -716,6 +752,41 @@ Assert((GETTWR(0) > 1 AND GETTWR(0) < 2), "TWR too low/high?").
 Assert((GETHOVERTHROTTLE(2,90) = 0.5), "Hover throttle at up facing.").
 Assert((GETHOVERTHROTTLE(2,45) > 0.5) AND (GETHOVERTHROTTLE(2,45) < (0.5*1.5)), "Hover throttle at angle.").
 Assert((GETHOVERTHROTTLE(1,90) = 1.0), "Hover throttle at up facing.").
+
+
+//function CALCULATETORQUE {
+//	parameter L.
+//	parameter F.
+//	parameter angle.
+Assert((CALCULATETORQUE(20,100,90)=1000), "Torque calc 1").
+Assert((CALCULATETORQUE(20,100,45)>707 AND CALCULATETORQUE(20,100,45)<708), "Torque calc 2").
+
+//function CALCULATEMOI {
+//	parameter m.
+//	parameter L.
+Assert((CALCULATEMOI(10,10) < CALCULATEMOI(15,10)), "Calc moi 1").
+Assert((CALCULATEMOI(10,10) < CALCULATEMOI(10,15)), "Calc moi 2").
+
+//function GETPOWEREDROTATIONACC {
+//	parameter SHIPLENGTH.
+//	parameter SHIPWEIGHT.
+//	parameter SHIPTHRUST.
+//	parameter ENGINEGIMBAL.
+PRINT "ACC NOW " + GETPOWEREDROTATIONACC(13.6,SHIP:MASS, 168, 3).
+PRINT "ACC WET " + GETPOWEREDROTATIONACC(13.6,SHIP:WETMASS, 168, 3).
+PRINT "ACC DRY " + GETPOWEREDROTATIONACC(13.6,SHIP:DRYMASS, 168, 3).
+Assert((GETPOWEREDROTATIONACC(13.6,SHIP:WETMASS, 168, 3) < GETPOWEREDROTATIONACC(13.6,SHIP:DRYMASS, 168, 3)), "Powered rotation acceleration 1").
+Assert((GETPOWEREDROTATIONACC(13.6,SHIP:DRYMASS, 168, 3) < 10, "Powered rotation acceleration 2").
+Assert((GETPOWEREDROTATIONACC(13.6,SHIP:DRYMASS, 168, 3) > 1, "Powered rotation acceleration 3").
+PRINT "ROTATION TIME WET " + GETPOWEREDONEEIGHTYTURNTIME(13.6,SHIP:WET, 168, 3).
+PRINT "ROTATION TIME DRY " + GETPOWEREDONEEIGHTYTURNTIME(13.6,SHIP:DRY, 168, 3).
+Assert((GETPOWEREDONEEIGHTYTURNTIME(13.6,SHIP:DRYMASS, 168, 3) < 5), "Powered rotation time 1").
+Assert((GETPOWEREDONEEIGHTYTURNTIME(13.6,SHIP:DRYMASS, 168, 3) > 1), "Powered rotation time 2").
+Assert((GETPOWEREDONEEIGHTYTURNTIME(13.6,SHIP:DRYMASS, 168, 3) < GETPOWEREDONEEIGHTYTURNTIME(13.6,SHIP:WET, 168, 3)), "Powered rotation time 3").
+
+Assert((GETDISPLACEMENT(1,2,1)=4), "Displacement calculation").
+
+WAIT 10.
 
 SET DV TO (260*GETGATALT(0))*LN(SHIP:MASS/SHIP:DRYMASS).
 PRINT "DV0 : " + DV AT (0,30).
