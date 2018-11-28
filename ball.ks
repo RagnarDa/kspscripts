@@ -11,6 +11,10 @@ function Assert{
 
 
 SET KSC to SHIP:GEOPOSITION.
+SET STARTINGPOS TO SHIP:GEOPOSITION.
+SET STARTINGLONGITUDE TO SHIP:GEOPOSITION:LNG.
+SET STARTINGLATITUDE TO SHIP:GEOPOSITION:LAT.
+SET TIPPINGRESTRICTION TO 20.
 
 // Function to measure Cd
 function MEASURECD {
@@ -26,6 +30,10 @@ function MEASURECD {
 	SET ITERATIONS TO 20000.
 	UNTIL (SHIP:VERTICALSPEED > 200.0)
 	{
+		IF (SHIP:VERTICALSPEED > 0)
+		{
+			GEAR OFF.
+		}
 		SET ITERATIONS TO ITERATIONS - 1.
 		//PRINTDATA().
 	// Measure Cd...
@@ -72,6 +80,11 @@ function ASCEONDTOORBIT {
 	SET HASMEASUREDCD TO 0.
 	UNTIL (APOAPSIS > TARGETALT * 0.999 AND PERIAPSIS > TARGETALT * 0.999)
 	{
+		IF (SHIP:VERTICALSPEED > 0)
+		{
+			GEAR OFF.
+		}
+
 		SET ALTRATIO TO ALTITUDE/TARGETALT.
 		SET APORATIO TO APOAPSIS/TARGETALT.
 		LOCK STEERING TO HEADING(90,90 - (90*APORATIO)).
@@ -547,7 +560,7 @@ function DEORBIT {
 	}.
 	LOG "DEORBITED AT ALT "+ altitude + " DIST " + GETGROUNDDIST(KSC) + " WITH IMPACTX " + IMPACTDIST TO "mylog".
 	LOCK THROTTLE TO 0.
-	UNTIL (ALTITUDE < 50000) // Still outside atmosphere...
+	UNTIL (ALTITUDE < 40000) // Still outside atmosphere...
 	{
 		
 		// Do a recursive burn at 0.9 alt
@@ -572,7 +585,7 @@ function DEORBIT {
 		}.
 	}.
 	
-	LOCK STEERING TO PROGRADE.
+	//LOCK STEERING TO PROGRADE.
 }
 function TransferFor {
 	SET sourceParts to SHIP:PARTSDUBBED("AFTTANK").
@@ -918,6 +931,198 @@ function LANDINVERTED {
 	}
 }.
 
+// Old code for powered landing at KSC
+function POWEREDLANDING {
+// Steer toward base.
+
+	set bodyRadius to 60000.
+if body = "Kerbin" { set bodyRadius to 60000. }.
+if body = "Mun" { set bodyRadius to 20000. }.
+
+//print "THIS IS A CRUDE DEMO LOOPING FOREVER.".
+//print "    alt-1 to lock to surface prograde. ".
+//print "    alt-2 to lock to surface retrograde. ".
+//print "    alt-3 to quit. ".
+//print " ".
+set mySteer to up.
+sas off.
+lock steering to mySteer.
+set direct to "retro".
+set done to false.
+
+set sdPTime to missiontime.
+set sdPLon to longitude.
+set sdPLat to latitude.
+set sdPAtl to altitude.
+set sdDegToRad to 3.1415927 / 180.
+set LASTTHROTTLE to 0.
+set sdPVS to verticalspeed.
+set sdPLatError to (latitude-STARTINGLATITUDE).
+set sdPLonError to (longitude-STARTINGLONGITUDE).
+set sdPLonV to 0.
+set sdPLatV to 0.
+wait 1.
+SET ERROROUTPUTTED TO FALSE.
+until done {
+	wait 0.1.
+  on AG1 set direct to "pro".
+  on AG2 set direct to "retro".
+  on AG3 done on.
+
+  set sdTime to missiontime.
+set sdLon to longitude.
+set sdLat to latitude.
+set sdVS to verticalspeed.
+set sdSS to groundspeed.
+set sdAlt to altitude.
+set TimeToImpact TO (alt:radar/-SHIP:VERTICALSPEED).
+set LonError to (longitude-STARTINGLONGITUDE).
+set LatError to (latitude-STARTINGLATITUDE).
+set sdLonV to (sdLat-sdPLat) / (sdTime-sdPTime).
+set sdLatV to (sdLon-sdPLon) / (sdTime-sdPTime).
+set sdLonAcc to sdLonV-sdPLonV.
+set sdLatAcc to sdLatV-sdPLatV.
+set sdPLonV to sdLonV.
+set sdPLatV to sdLatV.
+set surfRelSpeed to ( sdSS^2 + sdVS^2 ) ^ 0.5 .
+// (10-20)/5.0
+set LonCorrection to LonError+((sdPLonError-LonError)/(0.1/5.0)).
+set LatCorrection to LatError+((sdPLatError-LatError)/(0.1/5.0)).
+set sdPLatError to (latitude-STARTINGLATITUDE).
+set sdPLonError to (longitude-STARTINGLONGITUDE).
+// Limit lon and lat error
+//IF (LonError > 0.5) { SET LonError TO 0.5.}.
+//IF (LonError < -0.5) { SET LonError TO -0.5.}.
+//IF (LatError > 0.5) { SET LatError TO 0.5.}.
+//IF (LatError < -0.5) { SET LatError TO -0.5.}.
+//SET LonError TO 0.
+//SET LatError TO 0.
+SET FALLTIME TO alt:radar/SQRT(9.81).
+SET FALLTIME TO 70.
+SET Vterminal TO 173.
+SET TimeAcc TO (Vterminal - -SHIP:VERTICALSPEED)/9.81.
+SET DistanceAcc TO (-SHIP:VERTICALSPEED * TimeAcc)/(0.5*9.81*TimeAcc*TimeAcc).
+ //TimeToImpact TO SQRT(altitude/-SHIP:VERTICALSPEED).
+//IF (DistanceAcc < altitude) {
+	SET FALLTIME TO TimeAcc+((altitude-DistanceAcc)/Vterminal).
+	SET FALLTIMEHORADJ TO 1.5.
+//} else {
+//}.
+
+//PRINT "FALLTIME: " + TimeToImpact.
+//PRINT "FALLTIME: " + FALLTIME.
+SET KSCDIST TO SQRT((LatError*LatError)+(LonError*LonError)) * (bodyRadius+sdAlt)*sdDegToRad.
+//PRINT "KSCDIST: " + KSCDIST.
+IF (KSCDIST > 4000) {
+	PRINT "ABORT RETURN!".
+	SET LonError TO 0.
+	SET LatError TO 0.
+	SET KSCDIST TO 0.
+}.
+IF (FALLTIME < 15)
+{
+	GEAR ON.
+	GEAR ON.
+}.
+set surfRelNorth to ( (bodyRadius+sdAlt)*sdDegToRad*(LatError + ((sdLat-sdPLat)*FALLTIME*FALLTIMEHORADJ)) + (sdLatAcc*1)) / (sdTime-sdPTime).
+set surfRelEast to ( (bodyRadius+sdAlt)*sdDegToRad*(LonError + ((sdLon-sdPLon)*FALLTIME*FALLTIMEHORADJ)+ (sdLonAcc*1)) * cos(sdLat) ) / (sdTime-sdPTime).
+SET ErrorDist TO SQRT(((LatError + ((sdLat-sdPLat)*FALLTIME*FALLTIMEHORADJ))*(LatError + ((sdLat-sdPLat)*FALLTIME*FALLTIMEHORADJ)))+((LonError + ((sdLon-sdPLon)*FALLTIME)+ (sdLonAcc*1))*(LonError + ((sdLon-sdPLon)*FALLTIME)+ (sdLonAcc*1)))) * (bodyRadius+sdAlt)*sdDegToRad.
+IF (ERROROUTPUTTED = FALSE)
+{
+	PRINT "ERROR DIST: " + ErrorDist.
+	SET ERROROUTPUTTED TO TRUE.
+}.
+SET OLDTIPPINGRESTRICTION TO TIPPINGRESTRICTION.
+set surfRelUp to sdVS.
+set surfRelUp to sdVS.
+set surfRelUp to -80.
+
+
+	SET surfRelUp TO -45.
+		SET TIPPINGRESTRICTION TO 30.
+		IF altitude < 1500 {
+		SET surfRelUp TO -80.
+		SET TIPPINGRESTRICTION TO 10.
+}.
+IF surfRelEast > TIPPINGRESTRICTION { SET surfRelEast TO TIPPINGRESTRICTION.}.
+IF surfRelEast < -TIPPINGRESTRICTION { SET surfRelEast To -TIPPINGRESTRICTION.}.
+if surfRelNorth > TIPPINGRESTRICTION { SET surfRelNorth TO TIPPINGRESTRICTION.}.
+if surfRelNorth < -TIPPINGRESTRICTION { SET surfRelNorth TO -TIPPINGRESTRICTION.}.
+SET TIPPINGRESTRICTION TO OLDTIPPINGRESTRICTION.
+
+//IF (surfRelUp>-0.1) {SET surfRelUp to -0.1.}.
+
+
+//IF (surfRelUp>-0.1) {SET surfRelUp to -0.1.}.
+
+set surfPrograde to up * V( 0 - surfRelEast, surfRelNorth, surfRelUp ).
+set surfRetrograde to up * V( surfRelEast, 0-surfRelNorth, 0-surfRelUp ).
+
+set sdPLat to sdLat.
+set sdPLon to sdLon.
+set sdPTime to sdTime.
+set sdPAlt to sdAlt.
+set vAcc to (sdPVS-verticalspeed)/0.1.
+//PRINT "vAcc: " + vAcc.
+set sdPVS to verticalspeed.
+  if direct = "pro" {
+    set mySteer to surfPrograde.
+  }.
+  if direct = "retro" {
+    set mySteer to surfRetrograde.
+  }.
+  //LOCK THROTTLE TO (-SHIP:VERTICALSPEED/alt:radar)*1.0.
+//  IF (alt:radar > 800) {	
+//	SET ALTERROR TO (580)-(alt:radar-8).
+ //} else {
+	SET ALTERROR TO (KSCDIST*1.2)-(alt:radar-9.813).
+// }.
+  //PRINT "CURRENT ALT: " + alt:radar.
+  //PRINT "TARGET ALT: " + (KSCDIST*1.2).
+  //PRINT "ALTERROR: " + ALTERROR.
+  SET GROUNDSPEED TO SQRT((sdLonV*sdLonV)+(sdLatV*sdLatV)) * (bodyRadius+sdAlt)*sdDegToRad.
+  //SET APPROACHTIME TO KSCDIST/GROUNDSPEED.
+//	PRINT "APPROACH TIME: " + APPROACHTIME.
+// TWR about 1.5 so 9.8*0.5 amount of acc available + lag (4.9m/s2)
+// NO! TWR about 2.0 and we want to be stable at about 100m so 100/(9.8*2) = 5.1
+SET ALTDIV TO 6.
+SET THROTTLECHANGE TO ((1/ALTDIV)*0.1)*2.
+  	SET TARGETVS TO (ALTERROR/ALTDIV).
+	//IF ((KSCDIST*2.0)>alt:radar) SET TARGETVSL TO 10.
+	//PRINT "TARGETVS: " + TARGETVS.
+	//IF (TARGETVS < -150) { SET TARGETVS TO -150. }.
+	//IF (TARGETVS > 150) { SET TARGETVS TO 150.}.
+	IF (KSCDIST < 1.0) {IF (TARGETVS > -8.0) {IF (GROUNDSPEED < 1.0) { SET TARGETVS TO -8.0.}.}.} ELSE {
+			IF (SHIP:VERTICALSPEED < 0){
+		IF (ErrorDist > altitude * 0.005) {
+		IF (surfRelEast > TIPPINGRESTRICTION-1) { LOCK THROTTLE TO LASTTHROTTLE+0.5.}.
+		IF (surfRelEast < -TIPPINGRESTRICTION+1) { LOCK THROTTLE TO LASTTHROTTLE+0.5.}.
+		IF (surfRelNorth > TIPPINGRESTRICTION-1) { LOCK THROTTLE TO LASTTHROTTLE+0.5.}.
+		IF (surfRelNorth < -TIPPINGRESTRICTION+1) { LOCK THROTTLE TO LASTTHROTTLE+0.5.}.
+		SET LASTTHROTTLE TO (LASTTHROTTLE + THROTTLECHANGE + 0.01).
+		}.
+		}.
+	}.
+		IF SHIP:VERTICALSPEED < (TARGETVS+vAcc) {  SET LASTTHROTTLE TO (LASTTHROTTLE + THROTTLECHANGE). } ELSE { SET LASTTHROTTLE TO (LASTTHROTTLE - THROTTLECHANGE).  }.
+		IF (LASTTHROTTLE < 0) { SET LASTTHROTTLE TO 0.}.
+		IF (LASTTHROTTLE > 1) { SET LASTTHROTTLE TO 1.}.
+		//if (alt:radar < 1000) {
+		//
+		//} else {
+	//	IF LASTTHROTTLE < 0.01 { SET LASTTHROTTLE TO 0.01.}.
+		//}.
+		LOCK THROTTLE TO LASTTHROTTLE.
+
+		
+//IF altitude > 4000 {
+//	IF altitude < 6000 {
+//		LOCK THROTTLE TO SQRT((surfRelEast*surfRelEast)+(surfRelNorth*surfRelNorth)) / 90.
+//	}.
+//}.
+  //print "East,North,Up = ( " + surfRelEast + ", " + surfRelNorth + ", " + surfRelUp + ")".
+}.
+unlock steering.
+}
 
 
 // Assert
@@ -971,7 +1176,7 @@ WAIT 1.
 SET DV TO (260*GETGATALT(0))*LN(SHIP:MASS/SHIP:DRYMASS).
 PRINT "DV0 : " + DV AT (0,30).
 LOG "DV0 " + DV TO "mylog".
-SET DOTEST TO true.
+SET DOTEST TO false.
 IF (DOTEST){
 LOCK STEERING TO HEADING(-90,85).
 LOCK THROTTLE TO 1.
@@ -991,7 +1196,8 @@ WAIT 1.
 LOCK THROTTLE TO 0.
 
 GLIDE().
-LAND().
+//LAND().
+POWEREDLANDING().
 }.
 
 SET Cd TO 0.7/1000.
@@ -1036,8 +1242,8 @@ WAIT 4.
 SET DEORBITALT TO (APOAPSIS+PERIAPSIS)/2.0. // Likely deorbit altitude
 SET DEORBITV TO GETSTRAIGHTDIST(SHIP:AIRSPEED, DEORBITALT).
 DEORBIT(DEORBITALT, DEORBITV, 0).
-GLIDE().
-LAND().
+//GLIDE().
+//POWEREDLANDING().
 PRINT "PROGRAM ENDED.".
 UNTIL (FALSE) {
 	WAIT 3600000.
